@@ -60,7 +60,7 @@ export default function Calls() {
                   <td className="px-3 py-2 text-slate-600">{c.spoke_to}</td>
                   <td className="whitespace-nowrap px-3 py-2 tabular-nums text-slate-600">{money(c.price_proposed)}{c.counter_offer != null && <div className="text-xs text-slate-400">counter {money(c.counter_offer)}</div>}</td>
                   <td className="px-3 py-2 text-slate-600">{c.interest_level}</td>
-                  <td className="px-3 py-2 text-slate-600">{c.next_action}{c.followup_date && <div className="text-xs text-slate-400">{fmtDate(c.followup_date)}</div>}</td>
+                  <td className="px-3 py-2 text-slate-600">{c.next_actions.join(", ")}{c.followup_date && <div className="text-xs text-slate-400">{fmtDate(c.followup_date)}</div>}</td>
                   <td className="px-3 py-2"><TagList tags={c.tags} /></td>
                   <td className="max-w-xs px-3 py-2 text-slate-500">{c.notes}</td>
                   <td className="px-3 py-2 text-slate-500">{c.created_by}</td>

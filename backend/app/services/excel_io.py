@@ -1,5 +1,6 @@
 """Import the original Teacher_Call_Tracker.xlsx and export the data back in the same layout."""
 import io
+import json
 import re
 from datetime import date, datetime, time
 
@@ -147,7 +148,7 @@ def import_workbook(db: Session, data: bytes) -> dict:
                 manager_contacted=_yes(row[10]), contact_person=_s(row[11]),
                 demo_sent=_yes(row[12]), detailed_sent=_yes(row[13]), sent_via=_s(row[14]),
                 price_proposed=_num(row[15]), counter_offer=_num(row[16]), interest_level=_s(row[17]),
-                next_action=_s(row[18]), followup_date=_date(row[19]), notes=_s(row[20]),
+                next_action=_s(row[18]), next_actions=json.dumps([_s(row[18])] if _s(row[18]) else []), followup_date=_date(row[19]), notes=_s(row[20]),
             )
             db.add(call)
             db.flush()

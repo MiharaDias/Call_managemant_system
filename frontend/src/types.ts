@@ -19,7 +19,7 @@ export interface Call {
   called_date: string; called_time: string | null; number_dialed: string; outcome: string; spoke_to: string;
   manager_contacted: boolean; contact_person: string; demo_sent: boolean; detailed_sent: boolean;
   sent_via: string; price_proposed: number | null; counter_offer: number | null; interest_level: string;
-  next_action: string; followup_date: string | null; notes: string; created_by: string; tags: Tag[];
+  next_action: string; next_actions: string[]; followup_date: string | null; notes: string; created_by: string; tags: Tag[];
 }
 
 export interface Task {

@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
-from ..common import call_view, user_names
+from ..common import call_view, set_actions, user_names
 from ..db import get_db
 from ..models import Call, Option, Tag, Task, Teacher, TeacherPhone, User
 from ..schemas import CallIn, CallPatch
@@ -61,8 +61,9 @@ def create_call(data: CallIn, db: Session = Depends(get_db), user: User = Depend
     attempt = (db.scalar(
         select(func.count(Call.id)).where(Call.teacher_id == teacher.id, Call.round == data.round)
     ) or 0) + 1
-    call = Call(**data.model_dump(exclude={"create_task", "tag_ids", "new_phone"}), attempt=attempt,
-                created_by_id=user.id)
+    call = Call(**data.model_dump(exclude={"create_tasks", "tag_ids", "new_phone", "next_actions", "next_action"}),
+                attempt=attempt, created_by_id=user.id)
+    set_actions(call, data.next_actions or ([data.next_action] if data.next_action else []))
     call.tags = list(db.scalars(select(Tag).where(Tag.id.in_(data.tag_ids)))) if data.tag_ids else []
     db.add(call)
     db.flush()
@@ -72,10 +73,10 @@ def create_call(data: CallIn, db: Session = Depends(get_db), user: User = Depend
     if np and np.number.strip() and digits_only(np.number) not in {digits_only(p.number) for p in teacher.phones}:
         teacher.phones.append(TeacherPhone(number=np.number.strip(), label=np.label.strip(),
                                            position=len(teacher.phones)))
-    if data.create_task:
-        t = data.create_task
-        db.add(Task(**t.model_dump(exclude={"teacher_id"}), teacher_id=teacher.id,
-                    source_call_id=call.id, created_by_id=user.id))
+    for t in data.create_tasks:
+        fields = t.model_dump(exclude={"teacher_id"})
+        fields["assigned_to_id"] = fields["assigned_to_id"] or user.id
+        db.add(Task(**fields, teacher_id=teacher.id, source_call_id=call.id, created_by_id=user.id))
     db.commit()
     return call_view(_get(db, call.id), user_names(db))
 
@@ -85,6 +86,10 @@ def update_call(call_id: int, data: CallPatch, db: Session = Depends(get_db), _:
     call = _get(db, call_id)
     changes = data.model_dump(exclude_unset=True)
     tag_ids = changes.pop("tag_ids", None)
+    actions = changes.pop("next_actions", None)
+    legacy = changes.pop("next_action", None)
+    if actions is not None or legacy is not None:
+        set_actions(call, actions if actions is not None else ([legacy] if legacy else []))
     if tag_ids is not None:
         call.tags = list(db.scalars(select(Tag).where(Tag.id.in_(tag_ids)))) if tag_ids else []
     if "round" in changes and changes["round"] != call.round:

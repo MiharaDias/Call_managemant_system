@@ -163,7 +163,7 @@ export default function TeacherDetail() {
                         {c.counter_offer != null && <Badge className="bg-slate-100 text-slate-700">Counter {money(c.counter_offer)}</Badge>}
                         {c.interest_level && <Badge className="bg-violet-50 text-violet-700">{c.interest_level}</Badge>}
                         {c.tags.length > 0 && <TagList tags={c.tags} />}
-                        {c.next_action && <Badge className="bg-indigo-50 text-indigo-700">Next: {c.next_action}{c.followup_date && ` · ${fmtDate(c.followup_date)}`}</Badge>}
+                        {c.next_actions.map((a) => <Badge key={a} className="bg-indigo-50 text-indigo-700">Next: {a}{c.followup_date && ` · ${fmtDate(c.followup_date)}`}</Badge>)}
                       </div>
                       {c.notes && <p className="mt-1.5 whitespace-pre-wrap text-slate-600">{c.notes}</p>}
                       {c.created_by && <p className="mt-1 text-xs text-slate-400">by {c.created_by}</p>}

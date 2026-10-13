@@ -84,6 +84,26 @@ def tag_view(t) -> dict:
     return {"id": t.id, "name": t.name, "color": t.color, "description": t.description}
 
 
+def call_actions(c) -> list[str]:
+    """The call's next actions as a list (older calls only have the single legacy text)."""
+    if c.next_actions:
+        try:
+            return [str(x) for x in json.loads(c.next_actions)]
+        except ValueError:
+            pass
+    return [c.next_action] if c.next_action else []
+
+
+def set_actions(c, actions: list[str]) -> None:
+    clean: list[str] = []
+    for a in actions:
+        a = a.strip()
+        if a and a not in clean:
+            clean.append(a)
+    c.next_actions = json.dumps(clean, ensure_ascii=False)
+    c.next_action = ", ".join(clean)[:120]
+
+
 def call_view(c: Call, names: dict[int, str]) -> dict:
     return {
         "id": c.id, "teacher_id": c.teacher_id, "teacher_name": c.teacher.name if c.teacher else "",
@@ -95,7 +115,7 @@ def call_view(c: Call, names: dict[int, str]) -> dict:
         "demo_sent": c.demo_sent, "detailed_sent": c.detailed_sent, "sent_via": c.sent_via,
         "price_proposed": float(c.price_proposed) if c.price_proposed is not None else None,
         "counter_offer": float(c.counter_offer) if c.counter_offer is not None else None,
-        "interest_level": c.interest_level, "next_action": c.next_action,
+        "interest_level": c.interest_level, "next_action": ", ".join(call_actions(c)), "next_actions": call_actions(c),
         "followup_date": c.followup_date, "notes": c.notes,
         "created_by": names.get(c.created_by_id, ""),
         "tags": [tag_view(x) for x in c.tags],

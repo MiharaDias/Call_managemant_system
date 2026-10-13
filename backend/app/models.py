@@ -88,7 +88,8 @@ class Call(Base):
     price_proposed: Mapped[float | None] = mapped_column(Numeric(12, 2))
     counter_offer: Mapped[float | None] = mapped_column(Numeric(12, 2))
     interest_level: Mapped[str] = mapped_column(String(80), default="")
-    next_action: Mapped[str] = mapped_column(String(120), default="")
+    next_action: Mapped[str] = mapped_column(String(120), default="")  # legacy / joined text of next_actions
+    next_actions: Mapped[str] = mapped_column(Text, default="")  # JSON list: several next actions per call
     followup_date: Mapped[date | None] = mapped_column(Date)
     notes: Mapped[str] = mapped_column(Text, default="")
     created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))

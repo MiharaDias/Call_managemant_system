@@ -76,12 +76,12 @@ export const TASK_COLORS: Record<string, string> = {
   Other: "#64748b",
 };
 
-/** Task type to suggest for a call's "next action" */
-export function taskTypeFor(nextAction: string): string {
+/** Task type to suggest for a call's "next action" (falls back to the first/“Other” type for custom actions) */
+export function taskTypeFor(nextAction: string, available: string[] = []): string {
   const a = nextAction.toLowerCase();
-  if (a.includes("meet")) return "Meeting";
-  if (a.includes("demo") || a.includes("video")) return "Send demo video";
-  if (a.includes("message") || a.includes("detail") || a.includes("info")) return "Send details";
-  if (a.includes("call")) return "Call back";
-  return "Other";
+  const guess = a.includes("meet") ? "Meeting"
+    : a.includes("demo") || a.includes("video") ? "Send demo video"
+    : a.includes("message") || a.includes("detail") || a.includes("info") ? "Send details"
+    : a.includes("call") ? "Call back" : "Other";
+  return available.length && !available.includes(guess) ? (available.includes("Other") ? "Other" : available[0]) : guess;
 }

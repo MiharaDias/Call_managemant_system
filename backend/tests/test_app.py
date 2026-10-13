@@ -63,8 +63,8 @@ def test_import_workbook_then_full_flow(authed):
     r = c.post("/api/calls", json={
         **base, "round": 2, "outcome": "Answered - Spoke", "spoke_to": "Teacher", "price_proposed": 12000,
         "interest_level": "Negotiating", "next_action": "Call again", "followup_date": tomorrow.isoformat(),
-        "create_task": {"type": "Call back", "title": "Call again", "due_date": tomorrow.isoformat(),
-                        "due_time": "09:00:00"},
+        "create_tasks": [{"type": "Call back", "title": "Call again", "due_date": tomorrow.isoformat(),
+                          "due_time": "09:00:00"}],
     })
     assert r.status_code == 201
 
@@ -225,3 +225,30 @@ def test_class_size_and_papers_per_month(authed):
     from openpyxl import load_workbook
     ws = load_workbook(BytesIO(c.get("/api/export/excel").content))["Contacts"]
     assert [x.value for x in ws[1]][-2:] == ["Students per Class", "Papers per Month"]
+
+
+def test_multiple_and_custom_next_actions(authed):
+    c = authed
+    t = c.post("/api/teachers", json={"name": "Multi Action"}).json()
+    day, later = today().isoformat(), (today() + timedelta(days=3)).isoformat()
+    assert "Send brochure" in c.post("/api/options/next_action", json={"value": "Send brochure"}).json()["options"]["next_action"]
+    call = c.post("/api/calls", json={
+        "teacher_id": t["id"], "round": 1, "called_date": day, "outcome": "Answered - Spoke", "spoke_to": "Teacher",
+        "next_actions": ["Send demo video", "Meeting", "Send brochure", "Meeting"], "followup_date": day,
+        "create_tasks": [
+            {"type": "Send demo video", "title": "Send demo video", "due_date": day},
+            {"type": "Meeting", "title": "Meeting", "due_date": later, "due_time": "10:30:00"},
+            {"type": "Other", "title": "Send brochure", "due_date": later},
+        ],
+    }).json()
+    assert call["next_actions"] == ["Send demo video", "Meeting", "Send brochure"]  # duplicates dropped, order kept
+    assert call["next_action"] == "Send demo video, Meeting, Send brochure"
+    tasks = c.get("/api/tasks", params={"teacher_id": t["id"]}).json()
+    assert sorted(x["title"] for x in tasks) == ["Meeting", "Send brochure", "Send demo video"]
+    assert all(x["assigned_to"] == "Alice" for x in tasks)
+    # editing the actions
+    edited = c.patch(f"/api/calls/{call['id']}", json={"next_actions": ["Call again"]}).json()
+    assert edited["next_actions"] == ["Call again"]
+    # the calendar shows the meeting but not the brochure
+    cal = {x["title"] for x in c.get("/api/tasks/calendar", params={"start": later, "end": later}).json()}
+    assert "Meeting" in cal and "Send brochure" not in cal

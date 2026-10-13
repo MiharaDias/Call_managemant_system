@@ -39,6 +39,7 @@ def migrate() -> None:
     insp = inspect(engine)
     added = {
         "teacher_phones": [("label", "VARCHAR(50) DEFAULT ''")],
+        "calls": [("next_actions", "TEXT DEFAULT ''")],
         "teachers": [("students_per_class", "INTEGER"), ("papers_per_month", "INTEGER")],
     }
     with engine.begin() as conn:

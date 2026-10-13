@@ -4,6 +4,7 @@ import { api } from "../api";
 import { useInvalidate, useOptions, useTeacher } from "../hooks";
 import { addDays, taskTypeFor, todayStr, pad } from "../lib";
 import type { Call } from "../types";
+import OptionChips from "./OptionChips";
 import { TagPicker } from "./Tags";
 import { Button, Check, ErrorText, Field, Input, Modal, Select, Textarea } from "./ui";
 
@@ -36,14 +37,22 @@ export default function CallForm({ teacherId, call, onClose }: { teacherId: numb
     price_proposed: call?.price_proposed?.toString() ?? "",
     counter_offer: call?.counter_offer?.toString() ?? "",
     interest_level: call?.interest_level ?? "",
-    next_action: call?.next_action ?? "",
+    next_actions: call?.next_actions ?? ([] as string[]),
     followup_date: call?.followup_date ?? "",
     notes: call?.notes ?? "",
     tag_ids: call?.tags?.map((t) => t.id) ?? ([] as number[]),
   });
   const [newPhone, setNewPhone] = useState({ number: "", label: "Manager" });
-  const [makeTask, setMakeTask] = useState(!editing);
-  const [taskTime, setTaskTime] = useState("");
+  // One follow-up task per chosen next action (only when logging a new call)
+  interface Plan { action: string; type: string; date: string; time: string }
+  const [plan, setPlan] = useState<Plan[]>([]);
+  const taskTypes = opts.task_type ?? [];
+  const planFor = (action: string, date = addDays(todayStr(), 1)): Plan => ({ action, type: taskTypeFor(action, taskTypes), date, time: "" });
+  const setPlanRow = (action: string, patch: Partial<Plan>) => setPlan((p) => p.map((r) => (r.action === action ? { ...r, ...patch } : r)));
+  function setActions(actions: string[]) {
+    setF((p) => ({ ...p, next_actions: actions }));
+    if (!editing) setPlan((p) => actions.map((a) => p.find((r) => r.action === a) ?? planFor(a, p[0]?.date)));
+  }
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((p) => ({ ...p, [k]: v }));
 
   // Pre-fill round and the number to dial once the teacher has loaded.
@@ -59,9 +68,9 @@ export default function CallForm({ teacherId, call, onClose }: { teacherId: numb
     setF((p) => {
       const n = { ...p, outcome };
       // Automation: nobody picked up -> suggest calling again tomorrow
-      if (!editing && NO_CONTACT(outcome) && !p.followup_date) {
-        n.followup_date = addDays(todayStr(), 1);
-        n.next_action = p.next_action || "Call again";
+      if (!editing && NO_CONTACT(outcome) && p.next_actions.length === 0) {
+        n.next_actions = ["Call again"];
+        setPlan([planFor("Call again")]);
       }
       if (NO_CONTACT(outcome)) n.spoke_to = p.spoke_to || "Nobody";
       return n;
@@ -76,16 +85,15 @@ export default function CallForm({ teacherId, call, onClose }: { teacherId: numb
         called_time: f.called_time || null,
         price_proposed: num(f.price_proposed),
         counter_offer: num(f.counter_offer),
-        followup_date: f.followup_date || null,
+        followup_date: (editing ? f.followup_date : plan.map((r) => r.date).sort()[0]) || null,  // earliest follow-up
       };
       if (editing) return api.patch(`/calls/${call!.id}`, body);
       return api.post("/calls", {
         ...body, teacher_id: teacherId,
         new_phone: newPhone.number.trim() ? newPhone : null,
-        create_task: makeTask && f.followup_date ? {
-          teacher_id: teacherId, type: taskTypeFor(f.next_action), title: f.next_action || "Follow up",
-          due_date: f.followup_date, due_time: taskTime ? `${taskTime}:00` : null,
-        } : null,
+        create_tasks: plan.map((r) => ({
+          teacher_id: teacherId, type: r.type, title: r.action, due_date: r.date, due_time: r.time ? `${r.time}:00` : null,
+        })),
       });
     },
     onSuccess: async () => { await invalidate(); onClose(); },
@@ -149,21 +157,23 @@ export default function CallForm({ teacherId, call, onClose }: { teacherId: numb
           </div>
         )}
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <Field label="Next action">
-            <Select value={f.next_action} onChange={(e) => set("next_action", e.target.value)} options={opts.next_action ?? []} placeholder="—" />
-          </Field>
-          <Field label="Follow-up date"><Input type="date" value={f.followup_date} onChange={(e) => set("followup_date", e.target.value)} /></Field>
-        </div>
-        {!editing && f.followup_date && (
-          <div className="flex flex-wrap items-center gap-4 rounded-lg border border-indigo-100 bg-indigo-50 px-3 py-2">
-            <Check label={`Add to tasks: “${f.next_action || "Follow up"}”`} checked={makeTask} onChange={setMakeTask} />
-            {makeTask && (
-              <label className="flex items-center gap-2 text-sm text-slate-600">
-                at <Input type="time" value={taskTime} onChange={(e) => setTaskTime(e.target.value)} className="!w-auto !py-1" />
-                <span className="text-xs text-slate-400">(optional)</span>
-              </label>
-            )}
+        <Field label="Next actions" hint="Pick as many as you need, or add your own.">
+          <OptionChips category="next_action" noun="action" value={f.next_actions} onChange={setActions} />
+        </Field>
+        {editing && (
+          <Field label="Follow-up date" className="sm:w-1/2"><Input type="date" value={f.followup_date} onChange={(e) => set("followup_date", e.target.value)} /></Field>
+        )}
+        {!editing && plan.length > 0 && (
+          <div className="space-y-2 rounded-lg border border-indigo-100 bg-indigo-50 p-3">
+            <div className="text-xs font-medium text-indigo-900">These will be added to your tasks – set when each should happen:</div>
+            {plan.map((r) => (
+              <div key={r.action} className="grid grid-cols-2 items-center gap-2 sm:grid-cols-[1fr_9rem_9rem_7rem]">
+                <span className="col-span-2 text-sm font-medium text-slate-800 sm:col-span-1">{r.action}</span>
+                <Select aria-label={`Type for ${r.action}`} value={r.type} onChange={(e) => setPlanRow(r.action, { type: e.target.value })} options={taskTypes} />
+                <Input aria-label={`Date for ${r.action}`} type="date" required value={r.date} onChange={(e) => setPlanRow(r.action, { date: e.target.value })} />
+                <Input aria-label={`Time for ${r.action}`} type="time" value={r.time} onChange={(e) => setPlanRow(r.action, { time: e.target.value })} />
+              </div>
+            ))}
           </div>
         )}
 

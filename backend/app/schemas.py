@@ -107,11 +107,12 @@ class CallIn(BaseModel):
     counter_offer: Optional[float] = Field(default=None, ge=0)
     interest_level: str = ""
     next_action: str = ""
+    next_actions: list[str] = []
     followup_date: Optional[date] = None
     notes: str = ""
     tag_ids: list[int] = []
     new_phone: Optional[PhoneIn] = None  # a number we were given during the call (e.g. the manager's)
-    create_task: Optional[TaskIn] = None  # follow-up task created together with the call
+    create_tasks: list[TaskIn] = []  # follow-up tasks (one per next action) created together with the call
 
 
 class CallPatch(BaseModel):
@@ -130,6 +131,7 @@ class CallPatch(BaseModel):
     counter_offer: Optional[float] = Field(default=None, ge=0)
     interest_level: Optional[str] = None
     next_action: Optional[str] = None
+    next_actions: Optional[list[str]] = None
     followup_date: Optional[date] = None
     notes: Optional[str] = None
     tag_ids: Optional[list[int]] = None
