@@ -1,0 +1,194 @@
+import { useEffect, useState } from "react";
+import { useMutation } from "@tanstack/react-query";
+import { api } from "../api";
+import { useInvalidate, useOptions, useTeacher } from "../hooks";
+import { addDays, taskTypeFor, todayStr, pad } from "../lib";
+import type { Call } from "../types";
+import { TagPicker } from "./Tags";
+import { Button, Check, ErrorText, Field, Input, Modal, Select, Textarea } from "./ui";
+
+const NO_CONTACT = (o: string) => ["No answer", "Busy", "Call declined"].includes(o) || o.startsWith("Switched");
+
+function nowTime() {
+  const d = new Date();
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/** Log a new call for a teacher, or edit an existing one (pass `call`). */
+export default function CallForm({ teacherId, call, onClose }: { teacherId: number; call?: Call; onClose: () => void }) {
+  const { opts, maxRounds } = useOptions();
+  const { data: teacher } = useTeacher(teacherId);
+  const invalidate = useInvalidate();
+  const editing = !!call;
+
+  const [f, setF] = useState({
+    round: call?.round ?? 0,
+    called_date: call?.called_date ?? todayStr(),
+    called_time: call?.called_time?.slice(0, 5) ?? nowTime(),
+    number_dialed: call?.number_dialed ?? "",
+    outcome: call?.outcome ?? "",
+    spoke_to: call?.spoke_to ?? "",
+    manager_contacted: call?.manager_contacted ?? false,
+    contact_person: call?.contact_person ?? "",
+    demo_sent: call?.demo_sent ?? false,
+    detailed_sent: call?.detailed_sent ?? false,
+    sent_via: call?.sent_via ?? "",
+    price_proposed: call?.price_proposed?.toString() ?? "",
+    counter_offer: call?.counter_offer?.toString() ?? "",
+    interest_level: call?.interest_level ?? "",
+    next_action: call?.next_action ?? "",
+    followup_date: call?.followup_date ?? "",
+    notes: call?.notes ?? "",
+    tag_ids: call?.tags?.map((t) => t.id) ?? ([] as number[]),
+  });
+  const [newPhone, setNewPhone] = useState({ number: "", label: "Manager" });
+  const [makeTask, setMakeTask] = useState(!editing);
+  const [taskTime, setTaskTime] = useState("");
+  const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((p) => ({ ...p, [k]: v }));
+
+  // Pre-fill round and the number to dial once the teacher has loaded.
+  useEffect(() => {
+    if (!teacher || editing) return;
+    setF((p) => ({ ...p, round: p.round || teacher.next_round, number_dialed: p.number_dialed || teacher.phones[0]?.number || "" }));
+  }, [teacher, editing]);
+
+  const answered = f.outcome.startsWith("Answered");
+  const reached = answered || ["Teacher", "Manager", "Hotline"].includes(f.spoke_to);
+
+  function onOutcome(outcome: string) {
+    setF((p) => {
+      const n = { ...p, outcome };
+      // Automation: nobody picked up -> suggest calling again tomorrow
+      if (!editing && NO_CONTACT(outcome) && !p.followup_date) {
+        n.followup_date = addDays(todayStr(), 1);
+        n.next_action = p.next_action || "Call again";
+      }
+      if (NO_CONTACT(outcome)) n.spoke_to = p.spoke_to || "Nobody";
+      return n;
+    });
+  }
+
+  const save = useMutation({
+    mutationFn: async () => {
+      const num = (s: string) => (s === "" ? null : Number(s));
+      const body = {
+        ...f,
+        called_time: f.called_time || null,
+        price_proposed: num(f.price_proposed),
+        counter_offer: num(f.counter_offer),
+        followup_date: f.followup_date || null,
+      };
+      if (editing) return api.patch(`/calls/${call!.id}`, body);
+      return api.post("/calls", {
+        ...body, teacher_id: teacherId,
+        new_phone: newPhone.number.trim() ? newPhone : null,
+        create_task: makeTask && f.followup_date ? {
+          teacher_id: teacherId, type: taskTypeFor(f.next_action), title: f.next_action || "Follow up",
+          due_date: f.followup_date, due_time: taskTime ? `${taskTime}:00` : null,
+        } : null,
+      });
+    },
+    onSuccess: async () => { await invalidate(); onClose(); },
+  });
+
+  const phones = teacher?.phones ?? [];
+  const dialOptions = [
+    ...phones.map((p) => ({ value: p.number, label: p.label ? `${p.number} (${p.label})` : p.number })),
+    ...(f.number_dialed && !phones.some((p) => p.number === f.number_dialed) ? [{ value: f.number_dialed, label: f.number_dialed }] : []),
+  ];
+  // rounds: the default 5, plus any further round this teacher has reached (and always one more)
+  const roundMax = Math.max(maxRounds, f.round, teacher?.next_round ?? 0);
+
+  return (
+    <Modal title={`${editing ? "Edit call" : "Log call"} – ${teacher?.name ?? call?.teacher_name ?? ""}`} onClose={onClose} wide>
+      <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); save.mutate(); }}>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <Field label="Round">
+            <Select value={f.round || ""} onChange={(e) => set("round", Number(e.target.value))}
+              options={Array.from({ length: roundMax }, (_, i) => ({ value: i + 1, label: `Round ${i + 1}${i + 1 > maxRounds ? " (extra)" : ""}` }))} />
+          </Field>
+          <Field label="Date"><Input type="date" required value={f.called_date} onChange={(e) => set("called_date", e.target.value)} /></Field>
+          <Field label="Time"><Input type="time" value={f.called_time} onChange={(e) => set("called_time", e.target.value)} /></Field>
+          <Field label="Number dialed">
+            {dialOptions.length > 0
+              ? <Select value={f.number_dialed} onChange={(e) => set("number_dialed", e.target.value)} options={dialOptions} placeholder="—" />
+              : <Input value={f.number_dialed} onChange={(e) => set("number_dialed", e.target.value)} />}
+          </Field>
+        </div>
+
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <Field label="Call outcome *">
+            <Select required autoFocus value={f.outcome} onChange={(e) => onOutcome(e.target.value)} options={opts.outcome ?? []} placeholder="Select…" />
+          </Field>
+          <Field label="Spoke to">
+            <Select value={f.spoke_to} onChange={(e) => set("spoke_to", e.target.value)} options={opts.spoke_to ?? []} placeholder="—" />
+          </Field>
+          <Field label="Contact person name">
+            <Input value={f.contact_person} onChange={(e) => set("contact_person", e.target.value)} placeholder="e.g. Mr. Perera" />
+          </Field>
+        </div>
+
+        <div className="flex flex-wrap gap-x-6 gap-y-2">
+          <Check label="Manager / hotline contacted" checked={f.manager_contacted} onChange={(v) => set("manager_contacted", v)} />
+          <Check label="Demo video sent" checked={f.demo_sent} onChange={(v) => set("demo_sent", v)} />
+          <Check label="Detailed message sent" checked={f.detailed_sent} onChange={(v) => set("detailed_sent", v)} />
+        </div>
+        {(f.demo_sent || f.detailed_sent) && (
+          <Field label="Sent via" className="sm:w-1/3">
+            <Select value={f.sent_via} onChange={(e) => set("sent_via", e.target.value)} options={opts.channel ?? []} placeholder="—" />
+          </Field>
+        )}
+
+        {reached && (
+          <div className="grid grid-cols-1 gap-3 rounded-lg bg-slate-50 p-3 sm:grid-cols-3">
+            <Field label="Price proposed (LKR)"><Input type="number" min="0" inputMode="numeric" value={f.price_proposed} onChange={(e) => set("price_proposed", e.target.value)} /></Field>
+            <Field label="Teacher counter-offer (LKR)"><Input type="number" min="0" inputMode="numeric" value={f.counter_offer} onChange={(e) => set("counter_offer", e.target.value)} /></Field>
+            <Field label="Interest level">
+              <Select value={f.interest_level} onChange={(e) => set("interest_level", e.target.value)} options={opts.interest ?? []} placeholder="—" />
+            </Field>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Field label="Next action">
+            <Select value={f.next_action} onChange={(e) => set("next_action", e.target.value)} options={opts.next_action ?? []} placeholder="—" />
+          </Field>
+          <Field label="Follow-up date"><Input type="date" value={f.followup_date} onChange={(e) => set("followup_date", e.target.value)} /></Field>
+        </div>
+        {!editing && f.followup_date && (
+          <div className="flex flex-wrap items-center gap-4 rounded-lg border border-indigo-100 bg-indigo-50 px-3 py-2">
+            <Check label={`Add to tasks: “${f.next_action || "Follow up"}”`} checked={makeTask} onChange={setMakeTask} />
+            {makeTask && (
+              <label className="flex items-center gap-2 text-sm text-slate-600">
+                at <Input type="time" value={taskTime} onChange={(e) => setTaskTime(e.target.value)} className="!w-auto !py-1" />
+                <span className="text-xs text-slate-400">(optional)</span>
+              </label>
+            )}
+          </div>
+        )}
+
+        {!editing && (
+          <div className="rounded-lg border border-dashed border-slate-300 p-3">
+            <div className="mb-2 text-xs font-medium text-slate-600">Were you given another number? <span className="font-normal text-slate-400">(e.g. the hotline gave you the manager’s) – it is saved to this teacher</span></div>
+            <div className="flex gap-2">
+              <Input type="tel" aria-label="New number" placeholder="077 123 4567" value={newPhone.number} onChange={(e) => setNewPhone({ ...newPhone, number: e.target.value })} />
+              <Input list="phone-labels" aria-label="New number label" className="!w-40 shrink-0" value={newPhone.label} onChange={(e) => setNewPhone({ ...newPhone, label: e.target.value })} />
+              <datalist id="phone-labels">{["Hotline", "Manager", "Teacher", "Office", "Other"].map((l) => <option key={l} value={l} />)}</datalist>
+            </div>
+          </div>
+        )}
+
+        <Field label="Tags"><TagPicker creatable value={f.tag_ids} onChange={(v) => set("tag_ids", v)} /></Field>
+        <Field label="Notes"><Textarea value={f.notes} onChange={(e) => set("notes", e.target.value)} placeholder="What was discussed?" /></Field>
+
+        <ErrorText error={save.error} />
+        <div className="flex justify-end gap-2">
+          <Button onClick={onClose}>Cancel</Button>
+          <Button type="submit" variant="primary" disabled={save.isPending || !f.round || !f.outcome}>
+            {save.isPending ? "Saving…" : editing ? "Save changes" : "Save call"}
+          </Button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
