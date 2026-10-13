@@ -35,6 +35,9 @@ export function relDay(s: string, today = todayStr()) {
   return fmtDate(s);
 }
 
+export const KIND_LABEL: Record<string, string> = { call: "Call", online_meeting: "Online meeting", physical_meeting: "Physical meeting" };
+export const KIND_ICON: Record<string, string> = { call: "📞", online_meeting: "💻", physical_meeting: "🤝" };
+
 export const money = (n: number | null | undefined) => (n == null ? "" : n.toLocaleString("en-LK"));
 
 /** "071 344 4555" -> "+94713444555" (same rules as the server) */

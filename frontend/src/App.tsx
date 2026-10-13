@@ -19,7 +19,7 @@ const NAV = [
   { to: "/today", label: "Today", icon: "✅" },
   { to: "/calendar", label: "Calendar", icon: "📅" },
   { to: "/teachers", label: "Teachers", icon: "👩‍🏫" },
-  { to: "/calls", label: "Call log", icon: "📞" },
+  { to: "/calls", label: "Log", icon: "📞" },
   { to: "/tasks", label: "Tasks", icon: "📝" },
   { to: "/settings", label: "Settings", icon: "⚙️" },
 ];

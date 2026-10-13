@@ -9,7 +9,8 @@ import { useQueryClient } from "@tanstack/react-query";
 
 const LISTS: { key: string; label: string; hint?: string }[] = [
   { key: "outcome", label: "Call outcomes", hint: "Keep names starting with “Answered”, “Switched” etc. – the dashboard groups outcomes by them." },
-  { key: "spoke_to", label: "Spoke to" },
+  { key: "meeting_outcome", label: "Meeting outcomes" },
+  { key: "spoke_to", label: "Spoke to / met with" },
   { key: "interest", label: "Interest levels" },
   { key: "channel", label: "Sent via" },
   { key: "status", label: "Overall statuses", hint: "Order = the order of the pipeline. “Contacted” is set automatically after you speak to the teacher or a manager." },

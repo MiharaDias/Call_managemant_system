@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "../api";
 import { roundCount, useOptions } from "../hooks";
 import { fmtDate, money, toE164, waLink } from "../lib";
-import type { Teacher } from "../types";
+import type { Kind, Teacher } from "../types";
 import CallForm from "../components/CallForm";
 import TeacherForm from "../components/TeacherForm";
 import { TagList, TagPicker } from "../components/Tags";
@@ -23,7 +23,7 @@ export default function Teachers() {
   const setF = (k: string, v: string) => setSp((p) => { const n = new URLSearchParams(p); v ? n.set(k, v) : n.delete(k); return n; }, { replace: true });
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: "id", dir: 1 });
   const [adding, setAdding] = useState(false);
-  const [calling, setCalling] = useState<number | null>(null);
+  const [calling, setCalling] = useState<{ id: number; kind: Kind } | null>(null);
 
   const all = useQuery({ queryKey: ["teachers", "all"], queryFn: () => api.get<Teacher[]>("/teachers") });
   const mostRounds = Math.max(maxRounds, ...(all.data ?? []).map((t) => roundCount(t, maxRounds)));
@@ -100,14 +100,15 @@ export default function Teachers() {
                     {t.phones[0] ? <a href={`tel:${t.phones[0].e164 || t.phones[0].number}`} className="text-slate-700 hover:text-indigo-600" title={t.phones.map((p) => `${p.number}${p.label ? ` (${p.label})` : ""}`).join(", ")}>{t.phones[0].number}</a> : <span className="text-xs text-rose-500">no number</span>}
                     {t.phones.length > 1 && <span className="ml-1 text-xs text-slate-400">+{t.phones.length - 1}</span>}
                   </td>
-                  <td className="px-3 py-2"><div className="flex gap-1">{Array.from({ length: roundCount(t, maxRounds) }, (_, i) => <RoundChip key={i} round={i + 1} outcome={t.rounds[i + 1]?.outcome} attempts={t.rounds[i + 1]?.attempts} />)}</div></td>
+                  <td className="px-3 py-2"><div className="flex items-center gap-1">{t.meeting_count > 0 && <span title={`${t.meeting_count} meeting(s) held or logged`} className="mr-1 rounded bg-slate-800 px-1.5 py-0.5 text-[11px] font-semibold text-white">🤝 {t.meeting_count}</span>}{Array.from({ length: roundCount(t, maxRounds) }, (_, i) => <RoundChip key={i} round={i + 1} outcome={t.rounds[i + 1]?.outcome} attempts={t.rounds[i + 1]?.attempts} />)}</div></td>
                   <td className="px-3 py-2"><StatusBadge status={t.status} /></td>
                   <td className="px-3 py-2 text-slate-600">{t.latest_interest}</td>
                   <td className="px-3 py-2 text-right tabular-nums text-slate-600">{money(t.latest_price)}</td>
                   <td className={`whitespace-nowrap px-3 py-2 ${t.next_followup_overdue ? "font-medium text-rose-600" : "text-slate-600"}`}>{fmtDate(t.next_followup)}</td>
                   <td className="whitespace-nowrap px-3 py-2 text-right">
                     {t.phones[0] && <a href={waLink(toE164(t.phones[0].number))} target="_blank" rel="noreferrer" title="WhatsApp" className="mr-1 text-emerald-600 hover:underline">WA</a>}
-                    <Button size="sm" onClick={() => setCalling(t.id)}>Log call</Button>
+                    <Button size="sm" onClick={() => setCalling({ id: t.id, kind: "call" })}>Log call</Button>
+                    <Button size="sm" className="ml-1" title="Log a physical or online meeting" onClick={() => setCalling({ id: t.id, kind: "physical_meeting" })}>🤝</Button>
                   </td>
                 </tr>
               ))}
@@ -118,7 +119,7 @@ export default function Teachers() {
       </Card>
 
       {adding && <TeacherForm onClose={() => setAdding(false)} />}
-      {calling && <CallForm teacherId={calling} onClose={() => setCalling(null)} />}
+      {calling && <CallForm teacherId={calling.id} kind={calling.kind} onClose={() => setCalling(null)} />}
     </>
   );
 }

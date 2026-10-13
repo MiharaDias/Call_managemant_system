@@ -24,7 +24,7 @@ CALL_HEADERS = [
     "Key", "Teacher ID", "Teacher Name", "Subject", "Round", "Call Date", "Call Time", "Number Dialed",
     "Call Outcome", "Spoke To", "Manager / Hotline Contacted?", "Contact Person Name", "Demo Video Sent?",
     "Detailed Message Sent?", "Sent Via", "Price Proposed (LKR)", "Teacher Counter-Offer (LKR)",
-    "Interest Level", "Next Action", "Follow-up Date", "Notes",
+    "Interest Level", "Next Action", "Follow-up Date", "Notes", "Type", "Meeting Location / Link",
 ]
 
 
@@ -203,13 +203,16 @@ def export_workbook(db: Session) -> bytes:
     for t in teachers:
         for c in t.calls:
             ws.append([
-                f"{t.id}-R{c.round}" + (f"-{c.attempt}" if c.attempt > 1 else ""), t.id, t.name, t.subject,
+                (f"{t.id}-R{c.round}" + (f"-{c.attempt}" if c.attempt > 1 else "")) if (c.kind or "call") == "call"
+                else f"{t.id}-M{c.id}", t.id, t.name, t.subject,
                 c.round, c.called_date, c.called_time, c.number_dialed, c.outcome, c.spoke_to,
                 "Yes" if c.manager_contacted else "No", c.contact_person,
                 "Yes" if c.demo_sent else "No", "Yes" if c.detailed_sent else "No", c.sent_via,
                 float(c.price_proposed) if c.price_proposed is not None else None,
                 float(c.counter_offer) if c.counter_offer is not None else None,
                 c.interest_level, c.next_action, c.followup_date, c.notes,
+                {"call": "Call", "online_meeting": "Online meeting", "physical_meeting": "Physical meeting"}.get(c.kind or "call", "Call"),
+                c.location,
             ])
     ws = wb.create_sheet("Tasks")
     _style_header(ws, ["ID", "Teacher", "Type", "Task", "Due Date", "Due Time", "Status", "Notes"])

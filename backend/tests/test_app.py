@@ -252,3 +252,67 @@ def test_multiple_and_custom_next_actions(authed):
     # the calendar shows the meeting but not the brochure
     cal = {x["title"] for x in c.get("/api/tasks/calendar", params={"start": later, "end": later}).json()}
     assert "Meeting" in cal and "Send brochure" not in cal
+
+
+def test_log_physical_and_online_meetings(authed):
+    c = authed
+    day = today().isoformat()
+    t = c.post("/api/teachers", json={"name": "Meeting Person", "phones": [{"number": "071 000 1111"}]}).json()
+    tid = t["id"]
+    assert "Held" in c.get("/api/options").json()["options"]["meeting_outcome"]
+
+    # a call needs a round, a meeting does not
+    assert c.post("/api/calls", json={"teacher_id": tid, "called_date": day, "outcome": "Busy"}).status_code == 422
+    m = c.post("/api/calls", json={
+        "teacher_id": tid, "kind": "physical_meeting", "called_date": day, "called_time": "10:00:00",
+        "location": "Colombo office", "outcome": "Held", "spoke_to": "Manager", "price_proposed": 18000,
+        "interest_level": "Interested", "next_actions": ["Send detailed message"],
+    })
+    assert m.status_code == 201, m.text
+    m = m.json()
+    assert (m["kind"], m["round"], m["attempt"], m["location"]) == ("physical_meeting", 0, 1, "Colombo office")
+    o = c.post("/api/calls", json={"teacher_id": tid, "kind": "online_meeting", "called_date": day,
+                                   "location": "https://meet.example/abc", "outcome": "Held", "spoke_to": "Teacher"}).json()
+    assert o["kind"] == "online_meeting" and o["attempt"] == 1
+
+    # meetings do not count as call rounds, but they do count as contact and carry price/interest
+    v = c.get(f"/api/teachers/{tid}").json()
+    assert v["rounds_attempted"] == 0 and v["call_count"] == 0 and v["meeting_count"] == 2
+    assert v["next_round"] == 1 and v["reached"] and v["latest_price"] == 18000
+    assert v["status"] == "Interested"
+    assert len(v["calls"]) == 2
+
+    # the first call after the meetings is still Round 1
+    first = c.post("/api/calls", json={"teacher_id": tid, "round": 1, "called_date": day, "outcome": "No answer"}).json()
+    assert first["round"] == 1 and first["attempt"] == 1 and first["kind"] == "call"
+
+    assert {x["kind"] for x in c.get("/api/calls", params={"teacher_id": tid}).json()} == {"call", "physical_meeting", "online_meeting"}
+    meetings = c.get("/api/calls", params={"teacher_id": tid, "kind": "physical_meeting"}).json()
+    assert [x["location"] for x in meetings] == ["Colombo office"]
+
+    # dashboard per-round table only counts calls; meetings are reported separately
+    d = c.get("/api/dashboard/summary").json()
+    assert d["totals"]["meetings"] >= 2
+    logged = {r["key"]: r for r in d["table"]}["calls_logged"]
+    assert logged["rounds"]["1"] >= 1 and 0 not in [int(k) for k in logged["rounds"]]
+
+    from io import BytesIO
+    from openpyxl import load_workbook
+    ws = load_workbook(BytesIO(c.get("/api/export/excel").content))["Call Log"]
+    types = [row[-2].value for row in ws.iter_rows(min_row=2)]
+    assert "Physical meeting" in types and "Online meeting" in types and "Call" in types
+
+
+def test_older_clients_single_create_task_still_creates_the_task(authed):
+    """A browser tab left open on an older version sends `create_task` + `next_action`; the task must not be lost."""
+    c = authed
+    t = c.post("/api/teachers", json={"name": "Stale Tab"}).json()
+    tomorrow = (today() + timedelta(days=1)).isoformat()
+    call = c.post("/api/calls", json={
+        "teacher_id": t["id"], "round": 1, "called_date": today().isoformat(), "outcome": "Answered - Spoke",
+        "next_action": "Call again", "followup_date": tomorrow,
+        "create_task": {"type": "Call back", "title": "Call again", "due_date": tomorrow},
+    }).json()
+    assert call["next_actions"] == ["Call again"]
+    tasks = c.get("/api/tasks", params={"teacher_id": t["id"]}).json()
+    assert [(x["title"], x["type"], x["due_date"], x["source_call_id"]) for x in tasks] == [("Call again", "Call back", tomorrow, call["id"])]

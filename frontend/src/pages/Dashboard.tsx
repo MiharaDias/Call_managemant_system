@@ -33,12 +33,13 @@ export default function Dashboard() {
     <>
       <PageHeader title={`Hello, ${user.display_name}`} subtitle={fmtLongDate(s.today)} />
 
-      <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-5">
+      <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-6">
         <Stat label="Tasks due today" value={s.tasks_due_today} to="/today" tone="text-indigo-700" />
         <Stat label="Overdue tasks" value={s.tasks_overdue} to="/tasks" tone={s.tasks_overdue ? "text-rose-600" : undefined} />
         <Stat label="Teachers" value={s.totals.teachers} to="/teachers" />
         <Stat label="Never called" value={s.totals.never_called} to="/teachers?rounds=0" />
         <Stat label="Reached teacher / manager" value={s.totals.reached} />
+        <Stat label="Meetings logged" value={s.totals.meetings} to="/calls?kind=physical_meeting" />
       </div>
 
       <div className="mb-5 grid gap-4 lg:grid-cols-2">

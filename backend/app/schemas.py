@@ -92,7 +92,9 @@ class TaskPatch(BaseModel):
 
 class CallIn(BaseModel):
     teacher_id: int
-    round: int = Field(ge=1, le=20)
+    kind: str = Field(default="call", pattern="^(call|online_meeting|physical_meeting)$")
+    round: int = Field(default=0, ge=0, le=20)  # call rounds start at 1; meetings are not part of the rounds
+    location: str = Field(default="", max_length=255)  # meeting address or link
     called_date: date
     called_time: Optional[time] = None
     number_dialed: str = ""
@@ -113,10 +115,12 @@ class CallIn(BaseModel):
     tag_ids: list[int] = []
     new_phone: Optional[PhoneIn] = None  # a number we were given during the call (e.g. the manager's)
     create_tasks: list[TaskIn] = []  # follow-up tasks (one per next action) created together with the call
+    create_task: Optional[TaskIn] = None  # legacy single-task field, still accepted from older browser tabs
 
 
 class CallPatch(BaseModel):
     round: Optional[int] = Field(default=None, ge=1, le=20)
+    location: Optional[str] = Field(default=None, max_length=255)
     called_date: Optional[date] = None
     called_time: Optional[time] = None
     number_dialed: Optional[str] = None

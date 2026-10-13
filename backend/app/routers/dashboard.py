@@ -41,8 +41,8 @@ def summary(db: Session = Depends(get_db)):
     per_round = {m: {r: 0 for r in rounds} for m, _ in METRICS}
     prices: dict[int, list[float]] = {r: [] for r in rounds}
     for c in calls:
-        if c.round not in per_round["calls_logged"]:
-            continue
+        if (c.kind or "call") != "call" or c.round not in per_round["calls_logged"]:
+            continue  # meetings are not part of the call rounds
         r, g = c.round, outcome_group(c.outcome)
         if c.outcome:
             per_round["calls_logged"][r] += 1
@@ -106,6 +106,7 @@ def summary(db: Session = Depends(get_db)):
             "never_called": sum(1 for v in views if v["call_count"] == 0),
             "reached": sum(1 for v in views if v["reached"]),
             "exhausted": sum(1 for v in views if v["rounds_exhausted"]),
+            "meetings": sum(1 for c in calls if (c.kind or "call") != "call"),
         },
         "tasks_due_today": sum(1 for x in open_today if x.due_date == now),
         "tasks_overdue": sum(1 for x in open_today if x.due_date < now),

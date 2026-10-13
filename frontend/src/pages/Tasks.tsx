@@ -19,6 +19,7 @@ export default function Tasks() {
 
   const q = useQuery({ queryKey: ["tasks", f], queryFn: () => api.get<Task[]>("/tasks", f), placeholderData: (p) => p });
   const all = q.data ?? [];
+  const completed = all.filter((t) => t.status === "done").reverse();  // newest first
   const today = todayStr();
   const open = all.filter((t) => t.status === "open");
   const overdue = open.filter((t) => t.due_date < today);
@@ -48,7 +49,7 @@ export default function Tasks() {
         {overdue.length > 0 && section("Overdue", overdue, "", { tone: "text-rose-700", showDate: true })}
         {section("Due today", dueToday, "Nothing due today.")}
         {section("Upcoming", upcoming, "Nothing scheduled for the future.", { showDate: true })}
-        {section("All tasks (including completed)", all, "No tasks yet.", { showDate: true })}
+        {section("Completed", completed, "Nothing completed yet.", { showDate: true })}
       </div>
       {editing && <TaskForm task={editing === "new" ? undefined : editing} onClose={() => setEditing(null)} />}
     </>

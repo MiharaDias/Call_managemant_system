@@ -29,13 +29,15 @@ def list_calls(
     q: str = "", teacher_id: Optional[int] = None, round: Optional[int] = None,
     outcome: Optional[str] = None, user_id: Optional[int] = None,
     date_from: Optional[date] = None, date_to: Optional[date] = None,
-    tag_ids: list[int] = Query(default=[]),
+    tag_ids: list[int] = Query(default=[]), kind: Optional[str] = None,
 ):
     stmt = select(Call).join(Teacher).options(selectinload(Call.teacher), selectinload(Call.tags))
     if tag_ids:  # tagged on the call itself, or the teacher carries the tag
         stmt = stmt.where(Call.tags.any(Tag.id.in_(tag_ids)) | Teacher.tags.any(Tag.id.in_(tag_ids)))
     if q.strip():
         stmt = stmt.where(Teacher.name.ilike(f"%{q.strip()}%") | Call.notes.ilike(f"%{q.strip()}%"))
+    if kind:
+        stmt = stmt.where(Call.kind == kind)
     if teacher_id:
         stmt = stmt.where(Call.teacher_id == teacher_id)
     if round:
@@ -58,11 +60,16 @@ def create_call(data: CallIn, db: Session = Depends(get_db), user: User = Depend
     teacher = db.get(Teacher, data.teacher_id)
     if not teacher:
         raise HTTPException(404, "Teacher not found")
+    is_call = data.kind == "call"
+    if is_call and data.round < 1:
+        raise HTTPException(422, "Choose the round for this call")
+    # meetings sit outside the numbered call rounds
+    rnd = data.round if is_call else 0
     attempt = (db.scalar(
-        select(func.count(Call.id)).where(Call.teacher_id == teacher.id, Call.round == data.round)
-    ) or 0) + 1
-    call = Call(**data.model_dump(exclude={"create_tasks", "tag_ids", "new_phone", "next_actions", "next_action"}),
-                attempt=attempt, created_by_id=user.id)
+        select(func.count(Call.id)).where(Call.teacher_id == teacher.id, Call.round == rnd, Call.kind == "call")
+    ) or 0) + 1 if is_call else 1
+    call = Call(**{**data.model_dump(exclude={"create_tasks", "create_task", "tag_ids", "new_phone", "next_actions", "next_action"}),
+                   "round": rnd}, attempt=attempt, created_by_id=user.id)
     set_actions(call, data.next_actions or ([data.next_action] if data.next_action else []))
     call.tags = list(db.scalars(select(Tag).where(Tag.id.in_(data.tag_ids)))) if data.tag_ids else []
     db.add(call)
@@ -73,7 +80,7 @@ def create_call(data: CallIn, db: Session = Depends(get_db), user: User = Depend
     if np and np.number.strip() and digits_only(np.number) not in {digits_only(p.number) for p in teacher.phones}:
         teacher.phones.append(TeacherPhone(number=np.number.strip(), label=np.label.strip(),
                                            position=len(teacher.phones)))
-    for t in data.create_tasks:
+    for t in [*data.create_tasks, *([data.create_task] if data.create_task else [])]:
         fields = t.model_dump(exclude={"teacher_id"})
         fields["assigned_to_id"] = fields["assigned_to_id"] or user.id
         db.add(Task(**fields, teacher_id=teacher.id, source_call_id=call.id, created_by_id=user.id))

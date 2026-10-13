@@ -75,6 +75,8 @@ class Call(Base):
     teacher_id: Mapped[int] = mapped_column(ForeignKey("teachers.id", ondelete="CASCADE"), index=True)
     round: Mapped[int] = mapped_column(Integer)
     attempt: Mapped[int] = mapped_column(Integer, default=1)
+    kind: Mapped[str] = mapped_column(String(20), default="call")  # call | online_meeting | physical_meeting
+    location: Mapped[str] = mapped_column(String(255), default="")  # meeting address or link
     called_date: Mapped[date] = mapped_column(Date)
     called_time: Mapped[time | None] = mapped_column(Time)
     number_dialed: Mapped[str] = mapped_column(String(30), default="")

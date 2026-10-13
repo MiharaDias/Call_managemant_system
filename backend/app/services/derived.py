@@ -33,7 +33,9 @@ def outcome_group(outcome: str) -> str:
 
 
 def teacher_view(t: Teacher, max_rounds: int, today: date) -> dict:
-    calls = list(t.calls)  # ordered by date/time/id
+    everything = list(t.calls)  # calls and meetings, ordered by date/time/id
+    calls = [c for c in everything if (c.kind or "call") == "call"]  # only calls count towards the rounds
+    meetings = [c for c in everything if (c.kind or "call") != "call"]
     rounds: dict[int, dict] = {}
     for c in calls:
         r = rounds.setdefault(c.round, {"outcome": "", "attempts": 0})
@@ -41,7 +43,7 @@ def teacher_view(t: Teacher, max_rounds: int, today: date) -> dict:
         r["attempts"] += 1
 
     def latest(attr: str):
-        for c in reversed(calls):
+        for c in reversed(everything):
             v = getattr(c, attr)
             if v not in (None, ""):
                 return v
@@ -49,7 +51,7 @@ def teacher_view(t: Teacher, max_rounds: int, today: date) -> dict:
 
     open_tasks = [x for x in t.tasks if x.status == "open"]
     next_task = min(open_tasks, key=lambda x: (x.due_date, x.due_time or time.max), default=None)
-    reached = any(c.spoke_to in REACHED for c in calls)
+    reached = any(c.spoke_to in REACHED for c in everything)
     rounds_attempted = len(rounds)
     last = calls[-1] if calls else None
     price = latest("price_proposed")
@@ -71,11 +73,13 @@ def teacher_view(t: Teacher, max_rounds: int, today: date) -> dict:
         "next_round": max(rounds, default=0) + 1,  # no upper limit: extra rounds beyond the default are allowed
         "rounds_exhausted": rounds_attempted >= max_rounds and not reached,
         "call_count": len(calls),
+        "meeting_count": len(meetings),
+        "last_meeting_date": meetings[-1].called_date if meetings else None,
         "last_call_date": last.called_date if last else None,
         "reached": reached,
-        "manager_contacted": any(c.manager_contacted for c in calls),
-        "demo_sent": any(c.demo_sent for c in calls),
-        "detailed_sent": any(c.detailed_sent for c in calls),
+        "manager_contacted": any(c.manager_contacted for c in everything),
+        "demo_sent": any(c.demo_sent for c in everything),
+        "detailed_sent": any(c.detailed_sent for c in everything),
         "latest_price": float(price) if price is not None else None,
         "latest_interest": latest("interest_level") or "",
         "next_followup": next_task.due_date if next_task else None,

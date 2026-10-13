@@ -9,13 +9,16 @@ export interface Teacher {
   rounds: Record<string, { outcome: string; attempts: number }>;
   rounds_attempted: number; next_round: number; rounds_exhausted: boolean; call_count: number;
   last_call_date: string | null; reached: boolean; manager_contacted: boolean; demo_sent: boolean;
-  detailed_sent: boolean; latest_price: number | null; latest_interest: string;
+  detailed_sent: boolean; meeting_count: number; last_meeting_date: string | null; latest_price: number | null; latest_interest: string;
   next_followup: string | null; next_followup_overdue: boolean; open_task_count: number;
   calls?: Call[];
 }
 
+export type Kind = "call" | "online_meeting" | "physical_meeting";
+
 export interface Call {
   id: number; teacher_id: number; teacher_name: string; subject: string; round: number; attempt: number;
+  kind: Kind; location: string;
   called_date: string; called_time: string | null; number_dialed: string; outcome: string; spoke_to: string;
   manager_contacted: boolean; contact_person: string; demo_sent: boolean; detailed_sent: boolean;
   sent_via: string; price_proposed: number | null; counter_offer: number | null; interest_level: string;
@@ -35,7 +38,7 @@ export interface Summary {
   today: string; max_rounds: number; rounds: number[];
   table: { key: string; label: string; rounds: Record<string, number | null>; total: number | null }[];
   by_status: Record<string, number>;
-  totals: { teachers: number; with_phone: number; never_called: number; reached: number; exhausted: number };
+  totals: { teachers: number; with_phone: number; never_called: number; reached: number; exhausted: number; meetings: number };
   tasks_due_today: number; tasks_overdue: number; due_tasks: Task[];
   next_to_call: { teacher: { id: number; name: string; subject: string; phones: Phone[]; rounds_attempted: number }; reason: string }[];
   next_to_call_total: number;

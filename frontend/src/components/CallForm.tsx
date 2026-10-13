@@ -3,9 +3,10 @@ import { useMutation } from "@tanstack/react-query";
 import { api } from "../api";
 import { useInvalidate, useOptions, useTeacher } from "../hooks";
 import { addDays, taskTypeFor, todayStr, pad } from "../lib";
-import type { Call } from "../types";
+import { KIND_ICON, KIND_LABEL } from "../lib";
+import type { Call, Kind } from "../types";
 import OptionChips from "./OptionChips";
-import { TagPicker } from "./Tags";
+import { TagAssign } from "./Tags";
 import { Button, Check, ErrorText, Field, Input, Modal, Select, Textarea } from "./ui";
 
 const NO_CONTACT = (o: string) => ["No answer", "Busy", "Call declined"].includes(o) || o.startsWith("Switched");
@@ -15,18 +16,21 @@ function nowTime() {
   return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-/** Log a new call for a teacher, or edit an existing one (pass `call`). */
-export default function CallForm({ teacherId, call, onClose }: { teacherId: number; call?: Call; onClose: () => void }) {
+/** Log a call or a physical / online meeting for a teacher, or edit an existing entry (pass `call`). */
+export default function CallForm({ teacherId, call, kind: initialKind, onClose }: { teacherId: number; call?: Call; kind?: Kind; onClose: () => void }) {
   const { opts, maxRounds } = useOptions();
   const { data: teacher } = useTeacher(teacherId);
   const invalidate = useInvalidate();
   const editing = !!call;
+  const [kind, setKind] = useState<Kind>(call?.kind ?? initialKind ?? "call");
+  const isCall = kind === "call";
 
   const [f, setF] = useState({
     round: call?.round ?? 0,
     called_date: call?.called_date ?? todayStr(),
     called_time: call?.called_time?.slice(0, 5) ?? nowTime(),
     number_dialed: call?.number_dialed ?? "",
+    location: call?.location ?? "",
     outcome: call?.outcome ?? "",
     spoke_to: call?.spoke_to ?? "",
     manager_contacted: call?.manager_contacted ?? false,
@@ -62,17 +66,22 @@ export default function CallForm({ teacherId, call, onClose }: { teacherId: numb
   }, [teacher, editing]);
 
   const answered = f.outcome.startsWith("Answered");
-  const reached = answered || ["Teacher", "Manager", "Hotline"].includes(f.spoke_to);
+  const reached = isCall ? answered || ["Teacher", "Manager", "Hotline"].includes(f.spoke_to) : f.outcome === "Held";
+
+  function changeKind(k: Kind) {
+    setKind(k);
+    setF((p) => ({ ...p, outcome: "" }));  // outcome lists differ between calls and meetings
+  }
 
   function onOutcome(outcome: string) {
     setF((p) => {
       const n = { ...p, outcome };
       // Automation: nobody picked up -> suggest calling again tomorrow
-      if (!editing && NO_CONTACT(outcome) && p.next_actions.length === 0) {
+      if (!editing && isCall && NO_CONTACT(outcome) && p.next_actions.length === 0) {
         n.next_actions = ["Call again"];
         setPlan([planFor("Call again")]);
       }
-      if (NO_CONTACT(outcome)) n.spoke_to = p.spoke_to || "Nobody";
+      if (isCall && NO_CONTACT(outcome)) n.spoke_to = p.spoke_to || "Nobody";
       return n;
     });
   }
@@ -80,8 +89,10 @@ export default function CallForm({ teacherId, call, onClose }: { teacherId: numb
   const save = useMutation({
     mutationFn: async () => {
       const num = (s: string) => (s === "" ? null : Number(s));
+      const { round, ...rest } = f;  // meetings are not part of the numbered call rounds
       const body = {
-        ...f,
+        ...rest, ...(isCall ? { round } : {}), kind,
+        number_dialed: isCall ? f.number_dialed : "", location: isCall ? "" : f.location,
         called_time: f.called_time || null,
         price_proposed: num(f.price_proposed),
         counter_offer: num(f.counter_offer),
@@ -90,7 +101,7 @@ export default function CallForm({ teacherId, call, onClose }: { teacherId: numb
       if (editing) return api.patch(`/calls/${call!.id}`, body);
       return api.post("/calls", {
         ...body, teacher_id: teacherId,
-        new_phone: newPhone.number.trim() ? newPhone : null,
+        new_phone: isCall && newPhone.number.trim() ? newPhone : null,
         create_tasks: plan.map((r) => ({
           teacher_id: teacherId, type: r.type, title: r.action, due_date: r.date, due_time: r.time ? `${r.time}:00` : null,
         })),
@@ -108,30 +119,50 @@ export default function CallForm({ teacherId, call, onClose }: { teacherId: numb
   const roundMax = Math.max(maxRounds, f.round, teacher?.next_round ?? 0);
 
   return (
-    <Modal title={`${editing ? "Edit call" : "Log call"} – ${teacher?.name ?? call?.teacher_name ?? ""}`} onClose={onClose} wide>
+    <Modal title={`${editing ? "Edit" : "Log"} ${KIND_LABEL[kind].toLowerCase()} – ${teacher?.name ?? call?.teacher_name ?? ""}`} onClose={onClose} wide>
       <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); save.mutate(); }}>
+        {!editing && (
+          <div role="tablist" aria-label="Type" className="inline-flex overflow-hidden rounded-lg border border-slate-300 text-sm">
+            {(["call", "online_meeting", "physical_meeting"] as Kind[]).map((k) => (
+              <button key={k} type="button" role="tab" aria-selected={kind === k} onClick={() => changeKind(k)}
+                className={`px-3 py-1.5 ${kind === k ? "bg-indigo-600 text-white" : "bg-white text-slate-600 hover:bg-slate-50"}`}>
+                {KIND_ICON[k]} {KIND_LABEL[k]}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <Field label="Round">
-            <Select value={f.round || ""} onChange={(e) => set("round", Number(e.target.value))}
-              options={Array.from({ length: roundMax }, (_, i) => ({ value: i + 1, label: `Round ${i + 1}${i + 1 > maxRounds ? " (extra)" : ""}` }))} />
-          </Field>
+          {isCall && (
+            <Field label="Round">
+              <Select value={f.round || ""} onChange={(e) => set("round", Number(e.target.value))}
+                options={Array.from({ length: roundMax }, (_, i) => ({ value: i + 1, label: `Round ${i + 1}${i + 1 > maxRounds ? " (extra)" : ""}` }))} />
+            </Field>
+          )}
           <Field label="Date"><Input type="date" required value={f.called_date} onChange={(e) => set("called_date", e.target.value)} /></Field>
           <Field label="Time"><Input type="time" value={f.called_time} onChange={(e) => set("called_time", e.target.value)} /></Field>
-          <Field label="Number dialed">
-            {dialOptions.length > 0
-              ? <Select value={f.number_dialed} onChange={(e) => set("number_dialed", e.target.value)} options={dialOptions} placeholder="—" />
-              : <Input value={f.number_dialed} onChange={(e) => set("number_dialed", e.target.value)} />}
-          </Field>
+          {isCall ? (
+            <Field label="Number dialed">
+              {dialOptions.length > 0
+                ? <Select value={f.number_dialed} onChange={(e) => set("number_dialed", e.target.value)} options={dialOptions} placeholder="—" />
+                : <Input value={f.number_dialed} onChange={(e) => set("number_dialed", e.target.value)} />}
+            </Field>
+          ) : (
+            <Field label={kind === "online_meeting" ? "Meeting link / platform" : "Location / address"} className="col-span-2">
+              <Input value={f.location} onChange={(e) => set("location", e.target.value)}
+                placeholder={kind === "online_meeting" ? "e.g. Zoom, https://meet.google.com/…" : "e.g. School staff room, Colombo office"} />
+            </Field>
+          )}
         </div>
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <Field label="Call outcome *">
-            <Select required autoFocus value={f.outcome} onChange={(e) => onOutcome(e.target.value)} options={opts.outcome ?? []} placeholder="Select…" />
+          <Field label={isCall ? "Call outcome *" : "Meeting outcome *"}>
+            <Select required autoFocus value={f.outcome} onChange={(e) => onOutcome(e.target.value)}
+              options={(isCall ? opts.outcome : opts.meeting_outcome) ?? []} placeholder="Select…" />
           </Field>
-          <Field label="Spoke to">
+          <Field label={isCall ? "Spoke to" : "Met with"}>
             <Select value={f.spoke_to} onChange={(e) => set("spoke_to", e.target.value)} options={opts.spoke_to ?? []} placeholder="—" />
           </Field>
-          <Field label="Contact person name">
+          <Field label={isCall ? "Contact person name" : "Others who attended"}>
             <Input value={f.contact_person} onChange={(e) => set("contact_person", e.target.value)} placeholder="e.g. Mr. Perera" />
           </Field>
         </div>
@@ -177,7 +208,7 @@ export default function CallForm({ teacherId, call, onClose }: { teacherId: numb
           </div>
         )}
 
-        {!editing && (
+        {!editing && isCall && (
           <div className="rounded-lg border border-dashed border-slate-300 p-3">
             <div className="mb-2 text-xs font-medium text-slate-600">Were you given another number? <span className="font-normal text-slate-400">(e.g. the hotline gave you the manager’s) – it is saved to this teacher</span></div>
             <div className="flex gap-2">
@@ -188,14 +219,14 @@ export default function CallForm({ teacherId, call, onClose }: { teacherId: numb
           </div>
         )}
 
-        <Field label="Tags"><TagPicker creatable value={f.tag_ids} onChange={(v) => set("tag_ids", v)} /></Field>
+        <Field label="Tags"><TagAssign value={f.tag_ids} onChange={(v) => set("tag_ids", v)} /></Field>
         <Field label="Notes"><Textarea value={f.notes} onChange={(e) => set("notes", e.target.value)} placeholder="What was discussed?" /></Field>
 
         <ErrorText error={save.error} />
         <div className="flex justify-end gap-2">
           <Button onClick={onClose}>Cancel</Button>
-          <Button type="submit" variant="primary" disabled={save.isPending || !f.round || !f.outcome}>
-            {save.isPending ? "Saving…" : editing ? "Save changes" : "Save call"}
+          <Button type="submit" variant="primary" disabled={save.isPending || (isCall && !f.round) || !f.outcome}>
+            {save.isPending ? "Saving…" : editing ? "Save changes" : isCall ? "Save call" : "Save meeting"}
           </Button>
         </div>
       </form>

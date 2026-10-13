@@ -4,15 +4,15 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { api } from "../api";
 import { roundCount, useInvalidate, useOptions, useTeacher, useUsers } from "../hooks";
 import { fmtDate, fmtTime, money, toE164, waLink } from "../lib";
-import type { Call, Task } from "../types";
+import type { Call, Kind, Task } from "../types";
 import CallForm from "../components/CallForm";
 import TaskForm from "../components/TaskForm";
 import TaskRow from "../components/TaskRow";
 import OptionSelect from "../components/OptionSelect";
 import TeacherForm from "../components/TeacherForm";
-import { TagList, TagPicker } from "../components/Tags";
+import { TagAssign, TagList } from "../components/Tags";
 import { Badge, Button, Card, Empty, ErrorText, Input, RoundChip, Select, StatusBadge } from "../components/ui";
-import { outcomeTone } from "../lib";
+import { KIND_ICON, KIND_LABEL, outcomeTone } from "../lib";
 
 export default function TeacherDetail() {
   const id = Number(useParams().id);
@@ -23,7 +23,7 @@ export default function TeacherDetail() {
   const { data: t, isLoading, error } = useTeacher(id);
   const tasks = useQuery({ queryKey: ["tasks", { teacher_id: id }], queryFn: () => api.get<Task[]>("/tasks", { teacher_id: id }) });
 
-  const [callForm, setCallForm] = useState<Call | "new" | null>(null);
+  const [callForm, setCallForm] = useState<{ call?: Call; kind: Kind } | null>(null);
   const [taskForm, setTaskForm] = useState<Task | "new" | null>(null);
   const [editing, setEditing] = useState(false);
   const [phone, setPhone] = useState({ number: "", label: "Manager" });
@@ -39,12 +39,45 @@ export default function TeacherDetail() {
   if (isLoading) return <p className="text-slate-400">Loading…</p>;
   if (error || !t) return <p className="text-rose-600">Teacher not found. <Link className="underline" to="/teachers">Back to list</Link></p>;
 
-  const calls = t.calls ?? [];
+  const all = t.calls ?? [];
+  const meetings = all.filter((c) => c.kind !== "call");
+  const calls = all.filter((c) => c.kind === "call");
   const byRound = new Map<number, Call[]>();
   calls.forEach((c) => byRound.set(c.round, [...(byRound.get(c.round) ?? []), c]));
   const rounds = [...byRound.keys()].sort((a, b) => b - a);
   const open = (tasks.data ?? []).filter((x) => x.status === "open");
   const done = (tasks.data ?? []).filter((x) => x.status === "done");
+
+  const entry = (c: Call, meeting: boolean) => (
+    <li key={c.id} className="px-4 py-3 text-sm">
+      <div className="flex flex-wrap items-center gap-2">
+        {meeting && <Badge className="bg-slate-800 text-white">{KIND_ICON[c.kind]} {KIND_LABEL[c.kind]}</Badge>}
+        <Badge className={outcomeTone(meeting ? (c.outcome === "Held" ? "Answered" : "No answer") : c.outcome)}>{c.outcome}</Badge>
+        <span className="text-slate-500">{fmtDate(c.called_date, true)}{c.called_time && ` · ${fmtTime(c.called_time)}`}</span>
+        {!meeting && (byRound.get(c.round)?.length ?? 0) > 1 && <span className="text-xs text-slate-400">attempt {c.attempt}</span>}
+        {!meeting && c.number_dialed && <span className="text-slate-400">· {c.number_dialed}</span>}
+        {meeting && c.location && <span className="text-slate-600">· {/^https?:\/\//.test(c.location)
+          ? <a href={c.location} target="_blank" rel="noreferrer" className="text-indigo-600 hover:underline">{c.location}</a> : c.location}</span>}
+        {c.spoke_to && <span className="text-slate-600">· {meeting ? "met with" : "spoke to"} {c.spoke_to.toLowerCase()}{c.contact_person && ` (${c.contact_person})`}</span>}
+        <span className="ml-auto flex gap-2 text-xs">
+          <button className="text-indigo-600 hover:underline" onClick={() => setCallForm({ call: c, kind: c.kind })}>Edit</button>
+          <button className="text-rose-600 hover:underline" onClick={() => confirm(`Delete this ${meeting ? "meeting" : "call"}?`) && delCall.mutate(c.id)}>Delete</button>
+        </span>
+      </div>
+      <div className="mt-1.5 flex flex-wrap gap-1.5 text-xs">
+        {c.manager_contacted && <Badge className="bg-slate-100 text-slate-600">Manager/hotline</Badge>}
+        {c.demo_sent && <Badge className="bg-cyan-50 text-cyan-700">Demo sent{c.sent_via && ` · ${c.sent_via}`}</Badge>}
+        {c.detailed_sent && <Badge className="bg-teal-50 text-teal-700">Details sent</Badge>}
+        {c.price_proposed != null && <Badge className="bg-slate-100 text-slate-700">Price {money(c.price_proposed)}</Badge>}
+        {c.counter_offer != null && <Badge className="bg-slate-100 text-slate-700">Counter {money(c.counter_offer)}</Badge>}
+        {c.interest_level && <Badge className="bg-violet-50 text-violet-700">{c.interest_level}</Badge>}
+        {c.tags.length > 0 && <TagList tags={c.tags} />}
+        {c.next_actions.map((a) => <Badge key={a} className="bg-indigo-50 text-indigo-700">Next: {a}{c.followup_date && ` · ${fmtDate(c.followup_date)}`}</Badge>)}
+      </div>
+      {c.notes && <p className="mt-1.5 whitespace-pre-wrap text-slate-600">{c.notes}</p>}
+      {c.created_by && <p className="mt-1 text-xs text-slate-400">by {c.created_by}</p>}
+    </li>
+  );
 
   return (
     <>
@@ -61,7 +94,9 @@ export default function TeacherDetail() {
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button variant="primary" onClick={() => setCallForm("new")}>📞 Log call</Button>
+          <Button variant="primary" onClick={() => setCallForm({ kind: "call" })}>📞 Log call</Button>
+          <Button onClick={() => setCallForm({ kind: "online_meeting" })}>💻 Online meeting</Button>
+          <Button onClick={() => setCallForm({ kind: "physical_meeting" })}>🤝 Physical meeting</Button>
           <Button onClick={() => setTaskForm("new")}>+ Task</Button>
           <Button onClick={() => setEditing(true)}>Edit</Button>
           <Button variant="danger" onClick={() => confirm(`Delete ${t.name} and all their calls and tasks?`) && delTeacher.mutate()}>Delete</Button>
@@ -118,7 +153,7 @@ export default function TeacherDetail() {
                   options={users.map((u) => ({ value: u.id, label: u.display_name }))} placeholder="— anyone —" />
               </label>
               <div className="text-xs font-medium text-slate-600">Tags
-                <div className="mt-1"><TagPicker creatable value={t.tags.map((x) => x.id)} onChange={(ids) => patch.mutate({ tag_ids: ids })} /></div>
+                <div className="mt-1"><TagAssign value={t.tags.map((x) => x.id)} onChange={(ids) => patch.mutate({ tag_ids: ids })} /></div>
               </div>
               {t.notes && <p className="whitespace-pre-wrap rounded-lg bg-slate-50 p-3 text-sm text-slate-600">{t.notes}</p>}
             </div>
@@ -136,39 +171,19 @@ export default function TeacherDetail() {
             )}
           </Card>
 
-          <Card title={`Call history · ${calls.length}`} actions={<Button size="sm" variant="primary" onClick={() => setCallForm("new")}>Log call</Button>}>
-            {calls.length === 0 && <Empty>No calls logged yet.</Empty>}
+          <Card title={`History · ${calls.length} call${calls.length === 1 ? "" : "s"}, ${meetings.length} meeting${meetings.length === 1 ? "" : "s"}`} actions={<Button size="sm" variant="primary" onClick={() => setCallForm({ kind: "call" })}>Log call</Button>}>
+            {all.length === 0 && <Empty>No calls or meetings logged yet.</Empty>}
+            {meetings.length > 0 && (
+              <div className="border-b border-slate-100">
+                <div className="bg-slate-50 px-4 py-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">Meetings</div>
+                <ul className="divide-y divide-slate-100">{[...meetings].reverse().map((c) => entry(c, true))}</ul>
+              </div>
+            )}
             {rounds.map((r) => (
               <div key={r} className="border-b border-slate-100 last:border-0">
                 <div className="bg-slate-50 px-4 py-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">Round {r}</div>
                 <ul className="divide-y divide-slate-100">
-                  {[...byRound.get(r)!].reverse().map((c) => (
-                    <li key={c.id} className="px-4 py-3 text-sm">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Badge className={outcomeTone(c.outcome)}>{c.outcome}</Badge>
-                        <span className="text-slate-500">{fmtDate(c.called_date, true)}{c.called_time && ` · ${fmtTime(c.called_time)}`}</span>
-                        {byRound.get(r)!.length > 1 && <span className="text-xs text-slate-400">attempt {c.attempt}</span>}
-                        {c.number_dialed && <span className="text-slate-400">· {c.number_dialed}</span>}
-                        {c.spoke_to && <span className="text-slate-600">· spoke to {c.spoke_to.toLowerCase()}{c.contact_person && ` (${c.contact_person})`}</span>}
-                        <span className="ml-auto flex gap-2 text-xs">
-                          <button className="text-indigo-600 hover:underline" onClick={() => setCallForm(c)}>Edit</button>
-                          <button className="text-rose-600 hover:underline" onClick={() => confirm("Delete this call?") && delCall.mutate(c.id)}>Delete</button>
-                        </span>
-                      </div>
-                      <div className="mt-1.5 flex flex-wrap gap-1.5 text-xs">
-                        {c.manager_contacted && <Badge className="bg-slate-100 text-slate-600">Manager/hotline</Badge>}
-                        {c.demo_sent && <Badge className="bg-cyan-50 text-cyan-700">Demo sent{c.sent_via && ` · ${c.sent_via}`}</Badge>}
-                        {c.detailed_sent && <Badge className="bg-teal-50 text-teal-700">Details sent</Badge>}
-                        {c.price_proposed != null && <Badge className="bg-slate-100 text-slate-700">Price {money(c.price_proposed)}</Badge>}
-                        {c.counter_offer != null && <Badge className="bg-slate-100 text-slate-700">Counter {money(c.counter_offer)}</Badge>}
-                        {c.interest_level && <Badge className="bg-violet-50 text-violet-700">{c.interest_level}</Badge>}
-                        {c.tags.length > 0 && <TagList tags={c.tags} />}
-                        {c.next_actions.map((a) => <Badge key={a} className="bg-indigo-50 text-indigo-700">Next: {a}{c.followup_date && ` · ${fmtDate(c.followup_date)}`}</Badge>)}
-                      </div>
-                      {c.notes && <p className="mt-1.5 whitespace-pre-wrap text-slate-600">{c.notes}</p>}
-                      {c.created_by && <p className="mt-1 text-xs text-slate-400">by {c.created_by}</p>}
-                    </li>
-                  ))}
+                  {[...byRound.get(r)!].reverse().map((c) => entry(c, false))}
                 </ul>
               </div>
             ))}
@@ -176,7 +191,7 @@ export default function TeacherDetail() {
         </div>
       </div>
 
-      {callForm && <CallForm teacherId={id} call={callForm === "new" ? undefined : callForm} onClose={() => setCallForm(null)} />}
+      {callForm && <CallForm teacherId={id} call={callForm.call} kind={callForm.kind} onClose={() => setCallForm(null)} />}
       {taskForm && <TaskForm teacherId={id} task={taskForm === "new" ? undefined : taskForm} onClose={() => setTaskForm(null)} />}
       {editing && <TeacherForm teacher={t} onClose={() => setEditing(false)} />}
     </>

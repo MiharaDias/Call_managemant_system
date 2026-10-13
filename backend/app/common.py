@@ -8,6 +8,7 @@ from .config import settings
 from .models import Call, Option, Setting, Task, Teacher, User
 
 DEFAULT_OPTIONS: dict[str, list[str]] = {
+    "meeting_outcome": ["Held", "Rescheduled", "Cancelled", "No show"],
     "outcome": ["Answered - Spoke", "Answered - Call back later", "No answer", "Busy",
                 "Switched off / Unreachable", "Wrong number", "Not interested", "Call declined"],
     "spoke_to": ["Teacher", "Manager", "Hotline", "Receptionist / Other", "Nobody"],
@@ -108,7 +109,7 @@ def call_view(c: Call, names: dict[int, str]) -> dict:
     return {
         "id": c.id, "teacher_id": c.teacher_id, "teacher_name": c.teacher.name if c.teacher else "",
         "subject": c.teacher.subject if c.teacher else "",
-        "round": c.round, "attempt": c.attempt,
+        "round": c.round, "attempt": c.attempt, "kind": c.kind or "call", "location": c.location or "",
         "called_date": c.called_date, "called_time": c.called_time,
         "number_dialed": c.number_dialed, "outcome": c.outcome, "spoke_to": c.spoke_to,
         "manager_contacted": c.manager_contacted, "contact_person": c.contact_person,

@@ -5,7 +5,7 @@ import { api } from "../api";
 import { useInvalidate, useUsers } from "../hooks";
 import type { Teacher } from "../types";
 import OptionSelect from "./OptionSelect";
-import { TagPicker } from "./Tags";
+import { TagAssign } from "./Tags";
 import { Button, ErrorText, Field, Input, Modal, Select, Textarea } from "./ui";
 
 export const PHONE_LABELS = ["Hotline", "Manager", "Teacher", "Office", "Other"];
@@ -80,7 +80,7 @@ export default function TeacherForm({ teacher, onClose }: { teacher?: Teacher; o
               options={users.map((u) => ({ value: u.id, label: u.display_name }))} placeholder="— anyone —" />
           </Field>
         </div>
-        <Field label="Tags"><TagPicker creatable value={f.tag_ids} onChange={(v) => set("tag_ids", v)} /></Field>
+        <Field label="Tags"><TagAssign value={f.tag_ids} onChange={(v) => set("tag_ids", v)} /></Field>
         <Field label="Notes"><Textarea value={f.notes} onChange={(e) => set("notes", e.target.value)} /></Field>
         <ErrorText error={save.error} />
         <div className="flex justify-end gap-2">

@@ -40,4 +40,5 @@ if (dist / "index.html").exists():
         f = (dist / path).resolve()
         if path and f.is_file() and dist.resolve() in f.parents:
             return FileResponse(f)
-        return FileResponse(dist / "index.html")
+        # never cache the page shell, so a redeploy is picked up on the next load
+        return FileResponse(dist / "index.html", headers={"Cache-Control": "no-cache"})
